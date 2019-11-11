@@ -10,6 +10,7 @@ from libertem.job.masks import ApplyMasksJob
 from libertem.executor.inline import InlineJobExecutor
 from libertem.analysis.raw import PickFrameAnalysis
 from libertem.common.buffers import BufferWrapper
+from libertem.udf import UDF
 
 K2IS_TESTDATA_PATH = os.path.join(os.path.dirname(__file__), '..', '..',
                                   'data', 'Capture52', 'Capture52_.gtg')
@@ -34,11 +35,9 @@ def test_detect():
 
 def test_simple_open(default_k2is):
     assert tuple(default_k2is.shape) == (34, 35, 1860, 2048)
-    assert tuple(default_k2is.raw_shape) == (34 * 35, 1860, 2048)
 
     # shapes are JSON-encodable:
     json.dumps(tuple(default_k2is.shape))
-    json.dumps(tuple(default_k2is.raw_shape))
 
 
 def test_check_valid(default_k2is):
@@ -149,25 +148,82 @@ def test_get_diags(default_k2is):
 
 @pytest.mark.slow
 def test_udf_on_k2is(lt_ctx, default_k2is):
-    def my_init(partition):
-        return {}
+    res = lt_ctx.map(
+        dataset=default_k2is,
+        f=np.sum,
+    )
+    res.data
+    res.raw_data
+    # print(data.shape, res['pixelsum'].data.shape)
+    # assert np.allclose(res['pixelsum'].data, np.sum(data, axis=(2, 3)))
 
-    def my_buffers():
+
+class PixelsumUDF(UDF):
+    def get_result_buffers(self):
         return {
             'pixelsum': BufferWrapper(
                 kind="nav", dtype="float32"
             )
         }
 
-    def my_frame_fn(frame, pixelsum):
-        pixelsum[:] = np.sum(frame)
+    def process_frame(self, frame):
+        assert self.results.pixelsum.shape == (1,)
+        self.results.pixelsum[:] = np.sum(frame)
 
-    res = lt_ctx.run_udf(
-        dataset=default_k2is,
-        fn=my_frame_fn,
-        init=my_init,
-        make_buffers=my_buffers,
-    )
+
+def test_udf_roi(lt_ctx, default_k2is):
+    roi = np.zeros(default_k2is.shape.flatten_nav().nav, dtype=bool)
+    roi[0] = 1
+    psum = PixelsumUDF()
+    res = lt_ctx.run_udf(dataset=default_k2is, udf=psum, roi=roi)
     assert 'pixelsum' in res
-    # print(data.shape, res['pixelsum'].data.shape)
-    # assert np.allclose(res['pixelsum'].data, np.sum(data, axis=(2, 3)))
+
+
+def test_roi(lt_ctx, default_k2is):
+    p = next(default_k2is.get_partitions())
+    roi = np.zeros(p.shape.flatten_nav().nav, dtype=bool)
+    roi[0] = 1
+    tiles = []
+    for tile in p.get_tiles(dest_dtype="float32", roi=roi):
+        print("tile:", tile)
+        tiles.append(tile)
+    assert len(tiles) == 1
+
+
+def test_macrotile_normal(lt_ctx, default_k2is):
+    ps = default_k2is.get_partitions()
+    _ = next(ps)
+    p2 = next(ps)
+    macrotile = p2.get_macrotile()
+    assert macrotile.tile_slice.shape == p2.shape
+    assert macrotile.tile_slice.origin[0] == p2._start_frame
+
+
+def test_macrotile_roi_1(lt_ctx, default_k2is):
+    roi = np.zeros(default_k2is.shape.nav, dtype=bool)
+    roi[0, 5] = 1
+    roi[0, 17] = 1
+    p = next(default_k2is.get_partitions())
+    macrotile = p.get_macrotile(roi=roi)
+    assert tuple(macrotile.tile_slice.shape) == (2, 1860, 2048)
+
+
+def test_macrotile_roi_2(lt_ctx, default_k2is):
+    roi = np.zeros(default_k2is.shape.nav, dtype=bool)
+    # all ones are in the first partition, so we don't get any data in p2:
+    roi[0, 5] = 1
+    roi[0, 17] = 1
+    ps = default_k2is.get_partitions()
+    _ = next(ps)
+    p2 = next(ps)
+    macrotile = p2.get_macrotile(roi=roi)
+    assert tuple(macrotile.tile_slice.shape) == (0, 1860, 2048)
+
+
+def test_macrotile_roi_3(lt_ctx, default_k2is):
+    roi = np.ones(default_k2is.shape.nav, dtype=bool)
+    ps = default_k2is.get_partitions()
+    _ = next(ps)
+    p2 = next(ps)
+    macrotile = p2.get_macrotile(roi=roi)
+    assert tuple(macrotile.tile_slice.shape) == tuple(p2.shape)

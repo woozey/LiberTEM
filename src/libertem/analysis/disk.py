@@ -1,3 +1,5 @@
+import numpy as np
+
 from libertem import masks
 from libertem.viz import visualize_simple
 from .base import AnalysisResult, AnalysisResultSet
@@ -12,7 +14,7 @@ class DiskMaskAnalysis(BaseMasksAnalysis):
         if data.dtype.kind == 'c':
             return AnalysisResultSet(
                 self.get_complex_results(
-                    data,
+                    data.reshape(shape),
                     key_prefix='intensity',
                     title='intensity',
                     desc="intensity of the integration over the selected disk",
@@ -55,8 +57,13 @@ class DiskMaskAnalysis(BaseMasksAnalysis):
         cx = parameters.get('cx', detector_x / 2)
         cy = parameters.get('cy', detector_y / 2)
         r = parameters.get('r', min(detector_y, detector_x) / 2 * 0.3)
+        use_sparse = parameters.get('use_sparse', False)
+
         return {
             'cx': cx,
             'cy': cy,
             'r': r,
+            'use_sparse': use_sparse,
+            'mask_count': 1,
+            'mask_dtype': np.float32,
         }

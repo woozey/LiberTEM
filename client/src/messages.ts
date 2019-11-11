@@ -77,6 +77,7 @@ export enum DatasetTypes {
     K2IS = "K2IS",
     SER = "SER",
     FRMS6 = "FRMS6",
+    EMPAD = "EMPAD",
 }
 
 export interface DatasetParamsCommon {
@@ -100,8 +101,8 @@ export type DatasetParamsRaw = {
     type: DatasetTypes.RAW,
     path: string,
     dtype: string,
-    detector_size_raw: number[],
-    crop_detector_to: number[],
+    detector_size: number[],
+    enable_direct: boolean,
     scan_size: number[],
     tileshape: number[],
 } & DatasetParamsCommon
@@ -134,7 +135,13 @@ export type DatasetParamsFRMS6 = {
     path: string,
 } & DatasetParamsCommon
 
-export type DatasetFormParams = DatasetParamsHDF5 | DatasetParamsHDFS | DatasetParamsRaw | DatasetParamsMIB | DatasetParamsBLO | DatasetParamsK2IS | DatasetParamsSER | DatasetParamsFRMS6
+export type DatasetParamsEMPAD = {
+    type: DatasetTypes.EMPAD,
+    path: string,
+    scan_size: number[],
+} & DatasetParamsCommon
+
+export type DatasetFormParams = DatasetParamsHDF5 | DatasetParamsHDFS | DatasetParamsRaw | DatasetParamsMIB | DatasetParamsBLO | DatasetParamsK2IS | DatasetParamsSER | DatasetParamsFRMS6 | DatasetParamsEMPAD
 
 export interface DatasetCreateParams {
     id: string,
@@ -211,6 +218,20 @@ export interface DetectDatasetErrorResponse {
 
 export type DetectDatasetResponse = DetectDatasetSuccessResponse | DetectDatasetErrorResponse;
 
+export interface DataSetOpenSchemaSuccessResponse {
+    status: "ok",
+    ds_type: string,
+    schema: object,
+}
+
+export interface DataSetOpenSchemaErrorResponse {
+    status: "error",
+    ds_type: string,
+    msg: string,
+}
+
+export type DataSetOpenSchemaResponse = DataSetOpenSchemaSuccessResponse | DataSetOpenSchemaErrorResponse;
+
 export type MsgPartInitialDataset = DatasetOpen
 
 // type alias to add client-side state to datasets
@@ -231,6 +252,7 @@ export interface MaskDefRing {
     ri: number,
     ro: number
 }
+
 
 export interface MaskDefDisk {
     shape: "disk",
@@ -258,17 +280,102 @@ export interface PickFrameParams {
     y: number,
 }
 
+export interface FFTSumFramesParams {
+    real_rad: number | null,
+    real_centerx: number | null,
+    real_centery: number | null,
+}
+
+export interface PickFFTFrameParams {
+    x: number,
+    y: number,
+    real_rad: number | null,
+    real_centerx: number | null,
+    real_centery: number | null,
+}
+export interface RadialFourierParams {
+    shape: "radial_fourier",
+    cx: number,
+    cy: number,
+    ri: number,
+    ro: number,
+    n_bins: number,
+    max_order: number
+}
+
+export interface FFTParams {
+    rad_in: number,
+    rad_out: number,
+    real_rad: number | null,
+    real_centerx: number | null,
+    real_centery: number | null,
+}
+
+
+export interface FrameParams {
+    roi: {
+        shape: "rect",
+        x: number,
+        y: number,
+        width: number,
+        height: number,
+    } | {
+        shape: "disk",
+        cx: number,
+        cy: number,
+        r: number,
+    } |
+    {}
+}
+
+export interface ClustParams {
+    roi: {
+        shape: "rect",
+        x: number,
+        y: number,
+        width: number,
+        height: number,
+    } | {}
+    cx: number,
+    cy: number,
+    ri: number,
+    ro: number,
+    delta: number,
+    n_peaks: number,
+    n_clust: number,
+    min_dist: number,
+}
+
 export enum AnalysisTypes {
     APPLY_RING_MASK = "APPLY_RING_MASK",
     APPLY_DISK_MASK = "APPLY_DISK_MASK",
     APPLY_POINT_SELECTOR = "APPLY_POINT_SELECTOR",
     CENTER_OF_MASS = "CENTER_OF_MASS",
     SUM_FRAMES = "SUM_FRAMES",
+    SD_FRAMES = "SD_FRAMES",
     PICK_FRAME = "PICK_FRAME",
+    PICK_FFT_FRAME = "PICK_FFT_FRAME",
+    APPLY_FFT_MASK = "APPLY_FFT_MASK",
+    FFTSUM_FRAMES = "FFTSUM_FRAMES",
+    RADIAL_FOURIER = "RADIAL_FOURIER",
+    FEM = "FEM",
+    CLUST = "CLUST",
+    SUM_SIG = "SUM_SIG",
 }
 
 export interface RingMaskDetails {
     type: AnalysisTypes.APPLY_RING_MASK,
+    parameters: MaskDefRing,
+
+}
+
+export interface FFTDetails {
+    type: AnalysisTypes.APPLY_FFT_MASK,
+    parameters: FFTParams,
+}
+
+export interface FEMDetails {
+    type: AnalysisTypes.FEM,
     parameters: MaskDefRing,
 }
 
@@ -289,7 +396,22 @@ export interface CenterOfMassDetails {
 
 export interface SumFramesDetails {
     type: AnalysisTypes.SUM_FRAMES,
-    parameters: {},
+    parameters: FrameParams
+}
+
+export interface SDFramesDetails {
+    type: AnalysisTypes.SD_FRAMES,
+    parameters: FrameParams
+}
+
+export interface SumSigDetails {
+    type: AnalysisTypes.SUM_SIG,
+    parameters: {}
+}
+
+export interface FFTSumFramesDetails {
+    type: AnalysisTypes.FFTSUM_FRAMES,
+    parameters: FFTSumFramesParams,
 }
 
 export interface PickFrameDetails {
@@ -297,8 +419,28 @@ export interface PickFrameDetails {
     parameters: PickFrameParams,
 }
 
-export type AnalysisParameters = MaskDefRing | MaskDefDisk | CenterOfMassParams | PointDef | PickFrameParams;
-export type AnalysisDetails = RingMaskDetails | DiskMaskDetails | CenterOfMassDetails | PointDefDetails | SumFramesDetails | PickFrameDetails;
+export interface PickFFTFrameDetails {
+    type: AnalysisTypes.PICK_FFT_FRAME,
+    parameters: PickFFTFrameParams,
+}
+
+export interface RadialFourierDetails {
+    type: AnalysisTypes.RADIAL_FOURIER,
+    parameters: RadialFourierParams,
+}
+
+export interface RadialFourierDetails {
+    type: AnalysisTypes.RADIAL_FOURIER,
+    parameters: RadialFourierParams,
+}
+
+export interface ClustDetails {
+    type: AnalysisTypes.CLUST,
+    parameters: ClustParams,
+}
+
+export type AnalysisParameters = MaskDefRing | MaskDefDisk | CenterOfMassParams | PointDef | PickFrameParams | RadialFourierParams | FFTParams | PickFFTFrameParams | FFTSumFramesParams | ClustParams;
+export type AnalysisDetails = RingMaskDetails | DiskMaskDetails | CenterOfMassDetails | PointDefDetails | SumFramesDetails | SDFramesDetails | PickFrameDetails | RadialFourierDetails | FEMDetails | FFTDetails | FFTSumFramesDetails | PickFFTFrameDetails | SumSigDetails | ClustDetails;
 
 export interface StartJobRequest {
     job: {
@@ -317,7 +459,6 @@ export interface CancelJobResponse {
     status: "ok",
     job: string,
 }
-
 
 /*
  * fs browser 

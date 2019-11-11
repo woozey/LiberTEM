@@ -6,10 +6,38 @@ import numpy as np
 import hdfs3
 
 from libertem.common import Slice, Shape
+from libertem.web.messages import MessageConverter
 from .base import DataSet, Partition, DataTile, DataSetException, DataSetMeta
 
 
 log = logging.getLogger(__name__)
+
+
+class HDFSDatasetParams(MessageConverter):
+    SCHEMA = {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "$id": "http://libertem.org/HDFSDatasetParams.schema.json",
+        "title": "HDFSDatasetParams",
+        "type": "object",
+        "properties": {
+            "type": {"const": "HDFS"},
+            "path": {"type": "string"},
+            "tileshape": {
+                "type": "array",
+                "items": {"type": "number"},
+                "minItems": 4,
+                "maxItems": 4,
+            },
+        },
+        "required": ["type", "path", "tileshape"],
+    }
+
+    def convert_to_python(self, raw_data):
+        data = {
+            "index_path": raw_data["path"],
+            "tileshape": raw_data["tileshape"],
+        }
+        return data
 
 
 class HDFSReader(object):
@@ -33,6 +61,7 @@ class HDFSReader(object):
 
 class BinaryHDFSDataSet(DataSet):
     def __init__(self, index_path, host, port, tileshape, worker_map=None):
+        super().__init__()
         self.index_path = index_path
         self.dirname = os.path.dirname(index_path)
         self.host = host
@@ -48,12 +77,15 @@ class BinaryHDFSDataSet(DataSet):
         self._meta = DataSetMeta(
             shape=self.shape,
             dtype=self.dtype,
-            raw_shape=self.raw_shape,
         )
         return self
 
     def get_reader(self):
         return HDFSReader(host=self.host, port=self.port)
+
+    @classmethod
+    def get_msg_converter(cls):
+        return HDFSDatasetParams
 
     @property
     def dtype(self):
@@ -61,11 +93,6 @@ class BinaryHDFSDataSet(DataSet):
 
     @property
     def shape(self):
-        return Shape(self._index['shape'], sig_dims=self._sig_dims)
-
-    @property
-    def raw_shape(self):
-        # FIXME: need to distinguish shape/raw_shape in json metadata
         return Shape(self._index['shape'], sig_dims=self._sig_dims)
 
     def check_valid(self):

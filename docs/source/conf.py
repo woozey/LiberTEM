@@ -61,6 +61,12 @@ extensions = [
     'sphinx.ext.githubpages',
     'sphinx.ext.napoleon',
     'sphinx.ext.intersphinx',
+    'sphinx.ext.doctest',
+    'sphinxcontrib.bibtex',
+    'nbsphinx',
+    'nbsphinx_link',
+    'IPython.sphinxext.ipython_console_highlighting',
+    'sphinx_issues',
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -85,7 +91,7 @@ language = None
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path .
-exclude_patterns = []
+exclude_patterns = ['*/.ipynb_checkpoints/*']
 
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = 'sphinx'
@@ -183,6 +189,16 @@ texinfo_documents = [
 
 # -- Extension configuration -------------------------------------------------
 
+# -- Options for sphinx_issues -----------------------------------------------
+# GitHub repo
+issues_github_path = "LiberTEM/LiberTEM"
+
+# -- Options for doctest -----------------------------------------------------
+# Disable standard doctest block testing since that would run it for
+# docstrings in API reference, leading to failures because the test environment
+# is not set up correctly
+doctest_test_doctest_blocks = ''
+
 # -- Options for todo extension ----------------------------------------------
 
 # If true, `todo` and `todoList` produce output, else they produce nothing.
@@ -197,4 +213,8 @@ intersphinx_mapping = {
 linkcheck_ignore = [
     # Local URLs:
     r'^http://localhost.*',
+    # Some kind of user agent filtering
+    r'^https://pydata.org.*',
+    # Freezes the link checker for unknown reasons within CI, hard to reproduce
+    r'http://quantumdetectors.com/wp-content/uploads/2017/01/1532-Merlin-for-EM-Technical-Datasheet-v2.pdf',
 ]

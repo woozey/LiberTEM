@@ -1,5 +1,4 @@
 from typing import Union, Tuple
-import uuid
 
 import psutil
 import numpy as np
@@ -12,13 +11,15 @@ from libertem.common import Slice, Shape
 from libertem.executor.dask import DaskJobExecutor
 from libertem.analysis.raw import PickFrameAnalysis
 from libertem.analysis.com import COMAnalysis
+from libertem.analysis.radialfourier import RadialFourierAnalysis
 from libertem.analysis.disk import DiskMaskAnalysis
 from libertem.analysis.ring import RingMaskAnalysis
 from libertem.analysis.sum import SumAnalysis
 from libertem.analysis.point import PointMaskAnalysis
 from libertem.analysis.masks import MasksAnalysis
 from libertem.analysis.base import BaseAnalysis
-from libertem.udf import make_udf_tasks, merge_assign
+from libertem.udf.base import UDFRunner, UDF
+from libertem.udf.auto import AutoUDF
 
 
 class Context:
@@ -65,12 +66,14 @@ class Context:
         # delegate to libertem.io.dataset.load:
         ds = self.executor.run_function(load, filetype, *args, **kwargs)
         ds = self.executor.run_function(ds.initialize)
+        ds.set_num_cores(len(self.executor.get_available_workers()))
         self.executor.run_function(ds.check_valid)
         return ds
 
     load.__doc__ = load.__doc__ % {"types": ", ".join(filetypes.keys())}
 
-    def create_mask_job(self, factories, dataset, use_sparse=None):
+    def create_mask_job(self, factories, dataset, use_sparse=None,
+                        mask_count=None, mask_dtype=None, dtype=None):
         """
         Create a low-level mask application job. Each factory function should, when called,
         return a numpy array with the same shape as frames in the dataset (so dataset.shape.sig).
@@ -78,10 +81,11 @@ class Context:
         Parameters
         ----------
         factories
-            list of functions that take no arguments and create masks. The returned masks can be
-            numpy arrays or scipy.sparse matrices. The mask factories should not reference large
-            objects because they can create significant overheads when they are pickled and
-            unpickled.
+            Function or list of functions that take no arguments and create masks. The returned
+            masks can be
+            numpy arrays, scipy.sparse or sparse https://sparse.pydata.org/ matrices. The mask
+            factories should not reference large objects because they can create significant
+            overheads when they are pickled and unpickled.
         dataset
             dataset to work on
         use_sparse
@@ -90,26 +94,43 @@ class Context:
             multiplication
             * True: Convert all masks to sparse matrices.
             * False: Convert all masks to dense matrices.
+        mask_count (optional)
+            Specify the number of masks if a single factory function is used so that the number of
+            masks can be determined without calling the factory function.
+        mask_dtype (optional)
+            Specify the dtype of the masks so that mask dtype
+            can be determined without calling the mask factory functions. This can be used to
+            override the mask dtype in the result dtype determination. As an example, setting
+            this to np.float32 means that masks of type float64 will not switch the calculation
+            and result dtype to float64 or complex128.
+        dtype (optional)
+            Specify the dtype to do the calculation in. Integer dtypes are possible if the numpy
+            casting rules allow this for source and mask data.
 
         Examples
         --------
-        >>> from libertem.api import Context
-        >>> ctx = Context()
-        >>> ds = ctx.load("...")
+
         >>> # Use intermediate variables instead of referencing
         >>> # large complex objects like a dataset within the
         >>> # factory function
         >>> shape = dataset.shape.sig
         >>> job = ctx.create_mask_job(
-        ... factories=[lambda: np.ones(shape)],
-        ... dataset=dataset)
+        ...     factories=[lambda: np.ones(shape)],
+        ...     dataset=dataset
+        ... )
         >>> result = ctx.run(job)
         """
         return ApplyMasksJob(
-            dataset=dataset, mask_factories=factories, use_sparse=use_sparse
+            dataset=dataset,
+            mask_factories=factories,
+            use_sparse=use_sparse,
+            mask_count=mask_count,
+            mask_dtype=mask_dtype,
+            dtype=dtype,
         )
 
-    def create_mask_analysis(self, factories, dataset, use_sparse=None):
+    def create_mask_analysis(self, factories, dataset, use_sparse=None,
+                             mask_count=None, mask_dtype=None, dtype=None):
         """
         Create a mask application analysis. Each factory function should, when called,
         return a numpy array with the same shape as frames in the dataset (so dataset.shape.sig).
@@ -121,10 +142,11 @@ class Context:
         Parameters
         ----------
         factories
-            list of functions that take no arguments and create masks. The returned masks can be
-            numpy arrays or scipy.sparse matrices. The mask factories should not reference large
-            objects because they can create significant overheads when they are pickled and
-            unpickled.
+            Function or list of functions that take no arguments and create masks. The returned
+            masks can be numpy arrays, scipy.sparse or sparse https://sparse.pydata.org/ matrices.
+            The mask factories should not reference large objects because they can create
+            significant overheads when they are pickled and unpickled.
+            If a single function is specified, the first dimension is interpreted as the mask index.
         dataset
             dataset to work on
         use_sparse
@@ -133,25 +155,42 @@ class Context:
             multiplication
             * True: Convert all masks to sparse matrices.
             * False: Convert all masks to dense matrices.
+        mask_count (optional)
+            Specify the number of masks if a single factory function is used so that the number of
+            masks can be determined without calling the factory function.
+        mask_dtype (optional)
+            Specify the dtype of the masks so that mask dtype
+            can be determined without calling the mask factory functions. This can be used to
+            override the mask dtype in the result dtype determination. As an example, setting
+            this to np.float32 means that masks of type float64 will not switch the calculation
+            and result dtype to float64 or complex128.
+        dtype (optional)
+            Specify the dtype to do the calculation in. Integer dtypes are possible if the numpy
+            casting rules allow this for source and mask data.
 
         Examples
         --------
-        >>> from libertem.api import Context
-        >>> ctx = Context()
-        >>> ds = ctx.load("...")
+
         >>> # Use intermediate variables instead of referencing
         >>> # large complex objects like a dataset within the
         >>> # factory function
         >>> shape = dataset.shape.sig
         >>> job = ctx.create_mask_analysis(
-        ... factories=[lambda: np.ones(shape)],
-        ... dataset=dataset)
+        ...     factories=[lambda: np.ones(shape)],
+        ...     dataset=dataset
+        ... )
         >>> result = ctx.run(job)
-        >>> result.mask_0.raw_data
+        >>> result.mask_0.raw_data.shape
+        (16, 16)
         """
         return MasksAnalysis(
             dataset=dataset,
-            parameters={"factories": factories, "use_sparse": use_sparse},
+            parameters={
+                "factories": factories,
+                "use_sparse": use_sparse,
+                "mask_count": mask_count,
+                "mask_dtype": mask_dtype,
+                "dtype": dtype},
         )
 
     def create_com_analysis(self, dataset, cx: int = None, cy: int = None, mask_radius: int = None):
@@ -178,6 +217,44 @@ class Context:
         if mask_radius is not None:
             parameters['r'] = mask_radius
         analysis = COMAnalysis(
+            dataset=dataset, parameters=parameters
+        )
+        return analysis
+
+    def create_radial_fourier_analysis(self, dataset, cx: float = None, cy: float = None,
+            ri: float = None, ro: float = None, n_bins: int = None, max_order: int = None,
+            use_sparse: bool = None):
+        """
+        Calculate the Fourier transform of rings around the center.
+
+        See :class:`~libertem.analysis.radialfourier.RadialFourierAnalysis` for details!
+
+        Parameters
+        ----------
+        dataset
+            the dataset to work on
+        cx
+            center x value
+        cy
+            center y value
+        ri
+            inner radius
+        ro
+            outer radius
+        n_bins
+            number of bins
+        max_order
+            maximum order of calculated Fourier component
+        """
+        if dataset.shape.sig.dims != 2:
+            raise ValueError("incompatible dataset: need two signal dimensions")
+        loc = locals()
+        parameters = {
+            name: loc[name]
+            for name in ['cx', 'cy', 'ri', 'ro', 'n_bins', 'max_order', 'use_sparse']
+            if loc[name] is not None
+        }
+        analysis = RadialFourierAnalysis(
             dataset=dataset, parameters=parameters
         )
         return analysis
@@ -235,8 +312,8 @@ class Context:
         """
         Select the pixel with coords (y, x) from each frame
         """
-        if dataset.shape.nav.dims != 2:
-            raise ValueError("incompatible dataset: need two navigation dimensions")
+        if dataset.shape.nav.dims > 2:
+            raise ValueError("incompatible dataset: need at most two navigation dimensions")
         parameters = {
             'cx': x,
             'cy': y,
@@ -266,7 +343,7 @@ class Context:
         NOTE: if you just want to read single frames, it is easier to use `create_pick_analysis`.
 
         NOTE: It is not efficient to use this method on large parts of datasets, please consider
-        implementing an analysis instead.
+        implementing a UDF instead.
 
         Parameters
         ----------
@@ -285,41 +362,42 @@ class Context:
 
         Examples
         --------
-        >>> from libertem.api import Context
-        >>> ctx = Context()
-        >>> ds = ctx.load("...")
+
+        >>> dataset = ctx.load(
+        ...     filetype="memory",
+        ...     data=np.zeros([16, 16, 16, 16, 16], dtype=np.float32),
+        ...     sig_dims=2
+        ... )
         >>> origin = (7, 8, 9)
-        >>> job = create_pick_job(dataset=ds, origin=origin)
+        >>> job = ctx.create_pick_job(dataset=dataset, origin=origin)
         >>> result = ctx.run(job)
-        >>> assert result.shape == ds.shape.sig
+        >>> assert result.shape == tuple(dataset.shape.sig)
 
         """
         # FIXME: this method works well if we can flatten to 3D
         # need vectorized I/O for general case
-        raw_shape = dataset.raw_shape
         if len(origin) == dataset.shape.nav.dims:
-            if raw_shape.dims != len(origin) and raw_shape.nav.dims == 1:
-                origin = (np.ravel_multi_index(origin, dataset.shape.nav),)
+            origin = (np.ravel_multi_index(origin, dataset.shape.nav),)\
+                + tuple([0] * dataset.shape.sig.dims)
+        elif len(origin) == dataset.shape.sig.dims + 1:
+            pass  # keep as-is
+        elif len(origin) == 1:
             origin = origin + tuple([0] * dataset.shape.sig.dims)
-        elif len(origin) == dataset.shape.dims:
-            if raw_shape.dims != len(origin) and raw_shape.nav.dims == 1:
-                origin = (np.ravel_multi_index(origin, dataset.shape),)
         else:
             raise ValueError(
-                "incompatible dataset: origin needs to match dataset shape (%r)" % dataset.shape
+                "incompatible origin: can only read in flattened form"
             )
+
         if shape is None:
-            shape = tuple([1] * raw_shape.nav.dims) + tuple(raw_shape.sig)
+            shape = (1,) + tuple(dataset.shape.sig)
         else:
-            if len(shape) != dataset.shape.dims:
+            if len(shape) != dataset.shape.flatten_nav().dims:
                 raise ValueError(
                     "incompatible: shape needs to match the dataset shape"
                 )
-        shape = Shape(shape, sig_dims=raw_shape.sig.dims)
-        if raw_shape.dims != len(shape) and raw_shape.nav.dims == 1:
-            shape = shape.flatten_nav()
+        shape = Shape(shape, sig_dims=dataset.shape.sig.dims).flatten_nav()
         slice_ = Slice(origin=origin,
-                       shape=Shape(shape, sig_dims=raw_shape.sig.dims))
+                       shape=Shape(shape, sig_dims=dataset.shape.sig.dims))
         return PickFrameJob(
             dataset=dataset,
             slice_=slice_,
@@ -351,19 +429,21 @@ class Context:
 
         Examples
         --------
-        >>> from libertem.api import Context
-        >>> ctx = Context()
-        >>> ds = ctx.load("...")
-        >>> origin = (7, 8, 9)
-        >>> job = create_pick_analysis(dataset=ds, x=9, y=8, z=7)
+
+        >>> dataset = ctx.load(
+        ...     filetype="memory",
+        ...     data=np.zeros([16, 16, 16, 16, 16], dtype=np.float32),
+        ...     sig_dims=2
+        ... )
+        >>> job = ctx.create_pick_analysis(dataset=dataset, x=9, y=8, z=7)
         >>> result = ctx.run(job)
-        >>> assert result.intensity.raw_data.shape == ds.shape.sig
+        >>> assert result.intensity.raw_data.shape == tuple(dataset.shape.sig)
         """
         loc = locals()
         parameters = {name: loc[name] for name in ['x', 'y', 'z'] if loc[name] is not None}
         return PickFrameAnalysis(dataset=dataset, parameters=parameters)
 
-    def run(self, job: Union[Job, BaseAnalysis]):
+    def run(self, job: Union[Job, BaseAnalysis], roi=None):
         """
         Run the given `Job` or `Analysis` and return the result data.
 
@@ -375,10 +455,20 @@ class Context:
         analysis = None
         if hasattr(job, "get_job"):
             analysis = job
-            job_to_run = analysis.get_job()
+            if analysis.TYPE == 'JOB':
+                job_to_run = analysis.get_job()
+            else:
+                if roi is None:
+                    roi = analysis.get_roi()
+                udf_results = self.run_udf(
+                    dataset=analysis.dataset, udf=analysis.get_udf(), roi=roi
+                )
+                return analysis.get_udf_results(udf_results, roi)
         else:
             job_to_run = job
 
+        if roi is not None:
+            raise TypeError("old-style analyses don't support ROIs")
         out = job_to_run.get_result_buffer()
         for tiles in self.executor.run_job(job_to_run):
             for tile in tiles:
@@ -387,73 +477,53 @@ class Context:
             return analysis.get_results(out)
         return out
 
-    def run_udf(self, dataset, fn, make_buffers, init=None, merge=merge_assign):
+    def run_udf(self, dataset: DataSet, udf: UDF, roi=None):
         """
-        Run `fn` on `dataset`.
+        Run `udf` on `dataset`.
 
         Parameters
         ----------
         dataset
             The dataset to work on
 
-        init
-            Function to perform initialization. Should return a dict of variables that will
-            be shared between calls calls of your function. Note that these variables should
-            be considered read-only; they are not meant as a way to communicate between calls.
+        udf
+            UDF instance you want to run
 
-        make_buffers
-            Function that returns a dict, mapping buffer names to BufferWrapper instances
+        roi : numpy.ndarray
+            region of interest as bool mask over the navigation axes of the dataset
 
-        fn
-            The function to run on the dataset. It needs to accept the frame as keyword argument.
-            Additionally, it needs to have a parameter for each buffer created in make_buffers,
-            and also for each variable returned from the init function.
+        Returns
+        -------
+        dict:
+            Return value of the UDF containing the result buffers
+        """
+        return UDFRunner(udf).run_for_dataset(dataset, self.executor, roi)
 
-        merge
-            A function merging a partial result into the final result buffer. By default it just
-            performs assignment.
+    def map(self, dataset, f, roi=None):
+        '''
+        Create an :class:`AutoUDF` with function :meth:`f` and run it on :code:`dataset`
 
+        Parameters
+        ----------
 
-        Example
+        dataset:
+            The dataset to work on
+        f:
+            Function that accepts a frame as the only parameter. It should return a strongly
+            reduced output compared to the size of a frame.
+        roi : numpy.ndarray
+            region of interest as bool mask over the navigation axes of the dataset
+
+        Returns
         -------
 
-        This example creates a "sum image", where all pixels of each
-        diffraction pattern are summed up:
-
-        >>> def my_buffers():
-        >>>     return {
-        >>>         'pixelsum': BufferWrapper(
-        >>>             kind="nav", dtype="float32"
-        >>>         )
-        >>>     }
-
-        >>> def my_frame_fn(frame, pixelsum):
-        >>>     pixelsum[:] = np.sum(frame)
-
-        >>> ctx = Context()
-        >>> ds = ctx.load(...)
-        >>> res = ctx.run_udf(
-        >>>     dataset=ds,
-        >>>     fn=my_frame_fn,
-        >>>     make_buffers=my_buffers,
-        >>> )
-        """
-        result_buffers = make_buffers()
-        for buf in result_buffers.values():
-            buf.set_shape_ds(dataset)
-            buf.allocate()
-        cancel_id = str(uuid.uuid4())
-
-        tasks = make_udf_tasks(dataset, fn, init, make_buffers)
-
-        for partition_result_buffers, partition in self.executor.run_tasks(tasks, cancel_id):
-            buffer_views = {}
-            for k, buf in result_buffers.items():
-                buffer_views[k] = buf.get_view_for_partition(partition=partition)
-            buffers = {k: b.data
-                       for k, b in partition_result_buffers.items()}
-            merge(dest=buffer_views, src=buffers)
-        return result_buffers
+        BufferWrapper:
+            The result of the UDF. Access the underlying numpy array using the `data` attribute.
+            Shape and dtype is inferred automatically from :code:`f`.
+        '''
+        udf = AutoUDF(f=f)
+        results = self.run_udf(dataset=dataset, udf=udf, roi=roi)
+        return results['result']
 
     def _create_local_executor(self):
         cores = psutil.cpu_count(logical=False)

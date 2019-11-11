@@ -1,5 +1,6 @@
 import functools
 import logging
+import signal
 
 import tornado.util
 from dask import distributed as dd
@@ -56,18 +57,22 @@ class DaskJobExecutor(CommonDaskMixin, JobExecutor):
         self.client = client
         self._futures = {}
 
-    def run_job(self, job):
+    def run_job(self, job, cancel_id=None):
         tasks = job.get_tasks()
-        return self.run_tasks(tasks, cancel_id=job)
+        return self.run_tasks(tasks, cancel_id=cancel_id)
 
     def run_tasks(self, tasks, cancel_id):
         futures = self._get_futures(tasks)
         self._futures[cancel_id] = futures
-        for future, result in dd.as_completed(futures, with_results=True):
-            if future.cancelled():
-                raise JobCancelledError()
-            yield result
-        del self._futures[cancel_id]
+        try:
+            for future, result in dd.as_completed(futures, with_results=True):
+                if future.cancelled():
+                    del self._futures[cancel_id]
+                    raise JobCancelledError()
+                yield result
+        finally:
+            if cancel_id in self._futures:
+                del self._futures[cancel_id]
 
     def cancel(self, cancel_id):
         if cancel_id in self._futures:
@@ -120,6 +125,12 @@ class DaskJobExecutor(CommonDaskMixin, JobExecutor):
         """
         cluster = dd.LocalCluster(**(cluster_kwargs or {}))
         client = dd.Client(cluster, **(client_kwargs or {}))
+
+        # Disable handling Ctrl-C on the workers for a local cluster
+        # since the nanny restarts workers in that case and that gets mixed
+        # with Ctrl-C handling of the main process, at least on Windows
+        client.run(functools.partial(signal.signal, signal.SIGINT, signal.SIG_IGN))
+
         return cls(client=client, is_local=True)
 
 

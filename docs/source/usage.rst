@@ -1,13 +1,16 @@
-Usage
-=====
+.. _`usage documentation`:
+
+GUI usage
+=========
 
 .. include:: _single_node.rst
 
-Starting the LiberTEM Server
+Starting the LiberTEM server
 ----------------------------
 
-LiberTEM is based on a client-server architecture. To use LiberTEM, you need to
-have the server running on the machine where your data is available.
+LiberTEM is based on a client-server architecture. To use the LiberTEM GUI, you need to
+have the server running on the machine where your data is available. For using LiberTEM from
+Python scripts, this is not necessary, see :ref:`api documentation`.
 
 After :doc:`installing LiberTEM <install>`, activate the virtualenv or conda environment.
 
@@ -29,6 +32,8 @@ There are a few command line options available::
     Options:
       --port INTEGER  port on which the server should listen on
       --help          Show this message and exit.
+
+To access LiberTEM remotely, you can use :ref:`use SSH forwarding <ssh forwarding>`.
     
 As there is currently no authentication yet, listening on a different host than
 `127.0.0.1` / `localhost` is disabled. As a workaround, if you want to access LiberTEM from a different computer,
@@ -66,9 +71,9 @@ You can move up one directory with the ".." entry on top of the list. The file b
 
 ..  figure:: ./images/use/open.png
 
-After selecting a file, you set the type in the drop-down menu at the top of the dialogue above the file name. After that you set the appropriate parameters that depend on the file type. Clicking on "Load Dataset" will open the file with the selected parameters. The interface and internal logic to find good presets based on file type and available metadata, validate the inputs and display helpful error messages is still work in progress. Contributions are highly appreciated! TODO documentation of all supported file types and their parameters.
+After selecting a file, you set the type in the drop-down menu at the top of the dialogue above the file name. After that you set the appropriate parameters that depend on the file type. Clicking on "Load Dataset" will open the file with the selected parameters. The interface and internal logic to find good presets based on file type and available metadata, validate the inputs and display helpful error messages is still work in progress. Contributions are highly appreciated!
 
-* K2IS: You can open any of the files that belong to a K2IS data set and LiberTEM will find the remaining ones, provided they follow the default naming scheme.
+See :ref:`Loading using the GUI` for more detailed instructions and format-specific information.
 
 ..  figure:: ./images/use/type.png
 
@@ -98,6 +103,10 @@ Some analyses, such as the Center of Mass (COM) analysis, can render the result 
 
 ..  figure:: ./images/use/image.png
 
+Application-specific documentation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For more applications, like strain mapping and crystallinity analysis, please see the :doc:`Applications <applications>` section.
 
 Keyboard controls
 ~~~~~~~~~~~~~~~~~
@@ -105,140 +114,3 @@ Keyboard controls
 You can use arrow keys to change the coordinate parameters of any analysis. To do this, click on the
 handle you want to modify, and then use the arrow keys to move the handle.
 Hold shift to move in larger steps.
-
-The Python API
---------------
-
-The Python API is a concise API for using LiberTEM from Python code. It is suitable both
-for interactive scripting, for example from jupyter notebooks, and for usage
-from within a Python application.
-
-This is a basic example to load the API, create a local cluster, load a file and run a job. For a complete example on how to use the Python API, please see the
-jupyter notebooks in `the example directory <https://github.com/LiberTEM/LiberTEM/tree/master/examples>`_.
-
-For a full API reference, please see :doc:`Reference <reference>`.
-
-.. include:: /../../examples/basic.py
-    :code:
-
-User-defined functions
-~~~~~~~~~~~~~~~~~~~~~~
-
-A common case for analysing big EM data sets is running a reduction operation
-on each frame of the data set. The user-defined functions (UDF) interface
-of LiberTEM allows users to run their own reduction functions easily, without having
-to worry about parallelizing, I/O, the details of buffer management and so on. As an easy example, let's
-have a look at a function that simply sums up each frame to a single value:
-
-.. code-block:: python
-
-   from libertem.api import Context
-   from libertem.common.buffers import BufferWrapper
-
-    def make_pixelsum_buffer():
-        """
-        Describe the buffers we need to store our results:
-        kind="nav" means we want to have a value for each coordinate
-        in the navigation dimensions. We name our buffer 'pixelsum'.
-        """
-        return {
-            'pixelsum': BufferWrapper(
-                kind="nav", dtype="float32"
-            )
-        }
-
-    def make_pixel_sum(frame, pixelsum):
-        """
-        Sum up all pixels in this frame and store the result in the pixelsum buffer.
-        `pixelsum` is a view into the result buffer we defined above, and corresponds to the
-        entry for the current frame we work on. We don't have to take care of finding the correct
-        index for the frame we are processing ourselves.
-        """
-        pixelsum[:] = np.sum(frame)
-
-    # run the UDF on a dataset:
-    ctx = Context()
-    dataset = ctx.load("...")
-    res = ctx.run_udf(
-        dataset=dataset,
-        fn=make_pixel_sum,
-        make_buffers=make_pixelsum_buffer,
-    )
-
-
-Here is another example, demonstrating `kind="sig"` buffers and the merge function:
-
-.. code-block:: python
-
-   from libertem.api import Context
-   from libertem.common.buffers import BufferWrapper
-
-   def make_buffer():
-       """
-       Describe the buffers we need to store our results:
-       kind="sig" means we want to have a value for each coordinate
-       in the signal dimensions (i.e. a value for each pixel of the diffraction patterns).
-       We name our buffer 'maxbuf'.
-       """
-       return {
-           'maxbuf': BufferWrapper(
-               kind="sig", dtype="float32"
-           )
-       }
-
-   def make_max(frame, maxbuf):
-       """
-       In this function, we have a frame and the buffer `maxbuf` available, which we declared above.
-       This function is called for all frames / diffraction patterns in the data set. The maxbuf is
-       a partial result, and all partial results will later be merged (see below).
-
-       In this case, we determine the maximum from the current maximum and the current frame, for each
-       pixel in the diffraction pattern.
-
-       Notes:
-
-        - You cannot rely on any particular order of frames this function is called in.
-        - Your function should be pure, that is, it should not have side effects and should
-          only depend on it's input parameters.
-       """
-       maxbuf[:] = np.maximum(frame, maxbuf)
-
-   def max_merge(dest, src):
-       """
-       merge two partial results, from src into dest
-       """
-       dest['maxbuf'][:] = np.maximum(dest['maxbuf'], src['maxbuf'])
-
-   ctx = Context()
-   ds = ctx.load("...")
-   res = ctx.run_udf(
-       dataset=ds,
-       fn=make_max,
-       make_buffers=make_buffer,
-       merge=max_merge,
-   )
-
-
-For a more complete example, please have a look at the functions implemented in `libertem.udf`,
-for example `blobfinder`. Note that this is a quite new feature and the API is not stable yet!
-
-
-From an embedded interpreter
-----------------------------
-
-If LiberTEM is run from within an embedded interpreter, the following steps should be taken. This is necessary for Python scripting in Digital Micrograph, for example.
-
-The variable :code:`sys.argv` `may not be set in embedded interpreters <https://bugs.python.org/issue32573>`_, but it is expected by the :code:`multiprocessing` module when spawning new processes. This workaround guarantees that :code:`sys.argv` is set `until this is fixed upstream <https://github.com/python/cpython/pull/12463>`_:
-
-.. code-block:: python
-    
-    if not hasattr(sys, 'argv'):
-        sys.argv  = []
-
-
-Furthermore, the `correct executable for spawning subprocesses <https://docs.python.org/3/library/multiprocessing.html#multiprocessing.set_executable>`_ has to be set. 
-
-.. code-block:: python
-    
-    multiprocessing.set_executable(
-        os.path.join(sys.exec_prefix, 'pythonw.exe'))  # Windows only

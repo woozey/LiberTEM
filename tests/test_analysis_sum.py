@@ -1,58 +1,64 @@
 import numpy as np
 
-from utils import MemoryDataSet, _mk_random
+from libertem.io.dataset.memory import MemoryDataSet
+
+from utils import _mk_random
+
+from libertem import masks
+from libertem.analysis.sum import SumAnalysis
 
 
 def test_sum_dataset_tilesize_1(lt_ctx):
     data = _mk_random(size=(16, 16, 16, 16), dtype='<u2')
-    dataset = MemoryDataSet(data=data, tileshape=(1, 1, 16, 16), partition_shape=(1, 8, 16, 16))
+    dataset = MemoryDataSet(data=data, tileshape=(1, 16, 16), num_partitions=32)
     expected = data.sum(axis=(0, 1))
 
     analysis = lt_ctx.create_sum_analysis(dataset=dataset)
 
     results = lt_ctx.run(analysis)
 
-    assert results.intensity.raw_data.shape == (16, 16)
-    assert np.allclose(results.intensity.raw_data, expected)
+    assert results['intensity'].raw_data.shape == (16, 16)
+    assert np.allclose(results['intensity'].raw_data, expected)
 
 
 def test_sum_dataset_tilesize_2(lt_ctx):
     data = _mk_random(size=(16, 16, 16, 16), dtype='<u2')
-    dataset = MemoryDataSet(data=data, tileshape=(1, 8, 16, 16), partition_shape=(1, 8, 16, 16))
+    dataset = MemoryDataSet(data=data, tileshape=(8, 16, 16), num_partitions=32)
     expected = data.sum(axis=(0, 1))
 
     analysis = lt_ctx.create_sum_analysis(dataset=dataset)
 
     results = lt_ctx.run(analysis)
 
-    assert results.intensity.raw_data.shape == (16, 16)
-    assert np.allclose(results.intensity.raw_data, expected)
+    assert results['intensity'].raw_data.shape == (16, 16)
+    assert np.allclose(results['intensity'].raw_data, expected)
 
 
 def test_sum_endian(lt_ctx):
     data = _mk_random(size=(16, 16, 16, 16), dtype='>u2')
-    dataset = MemoryDataSet(data=data, tileshape=(1, 8, 16, 16), partition_shape=(1, 8, 16, 16))
+    dataset = MemoryDataSet(data=data, tileshape=(8, 16, 16), num_partitions=32)
     expected = data.sum(axis=(0, 1))
 
     analysis = lt_ctx.create_sum_analysis(dataset=dataset)
 
     results = lt_ctx.run(analysis)
 
-    assert results.intensity.raw_data.shape == (16, 16)
-    assert np.allclose(results.intensity.raw_data, expected)
+    assert results['intensity'].raw_data.shape == (16, 16)
+    assert np.allclose(results['intensity'].raw_data, expected)
 
 
 def test_sum_signed(lt_ctx):
     data = _mk_random(size=(16, 16, 16, 16), dtype='<i4')
-    dataset = MemoryDataSet(data=data, tileshape=(1, 8, 16, 16), partition_shape=(1, 8, 16, 16))
+    dataset = MemoryDataSet(data=data, tileshape=(8, 16, 16), num_partitions=32,
+                            check_cast=False)
     expected = data.sum(axis=(0, 1))
 
     analysis = lt_ctx.create_sum_analysis(dataset=dataset)
 
     results = lt_ctx.run(analysis)
 
-    assert results.intensity.raw_data.shape == (16, 16)
-    assert np.allclose(results.intensity.raw_data, expected)
+    assert results['intensity'].raw_data.shape == (16, 16)
+    assert np.allclose(results['intensity'].raw_data, expected)
 
 
 def test_sum_timeseries(lt_ctx):
@@ -60,13 +66,10 @@ def test_sum_timeseries(lt_ctx):
     sum over the first axis of a 3D dataset
     """
     data = _mk_random(size=(16 * 16, 16, 16), dtype='<u2')
-    # FIXME: should tileshape be 3D or 4D here?
-    # I think 3D should be fine, as it matches data and partition shape
     dataset = MemoryDataSet(
         data=data,
-        effective_shape=(16, 16, 16, 16),
         tileshape=(2, 16, 16),
-        partition_shape=(8, 16, 16)
+        num_partitions=32
     )
 
     # only sum over the first axis:
@@ -76,8 +79,8 @@ def test_sum_timeseries(lt_ctx):
 
     results = lt_ctx.run(analysis)
 
-    assert results.intensity.raw_data.shape == (16, 16)
-    assert np.allclose(results.intensity.raw_data, expected)
+    assert results['intensity'].raw_data.shape == (16, 16)
+    assert np.allclose(results['intensity'].raw_data, expected)
 
 
 def test_sum_spectrum_2d_frames(lt_ctx):
@@ -87,9 +90,8 @@ def test_sum_spectrum_2d_frames(lt_ctx):
     data = _mk_random(size=(16, 16, 16 * 16), dtype='<u2')
     dataset = MemoryDataSet(
         data=data,
-        effective_shape=(16, 16, 16 * 16),
-        tileshape=(1, 2, 16 * 16),
-        partition_shape=(1, 8, 16 * 16),
+        tileshape=(2, 16 * 16),
+        num_partitions=32,
         sig_dims=1,
     )
 
@@ -100,8 +102,8 @@ def test_sum_spectrum_2d_frames(lt_ctx):
 
     results = lt_ctx.run(analysis)
 
-    assert results.intensity.raw_data.shape == (16 * 16,)
-    assert np.allclose(results.intensity.raw_data, expected)
+    assert results['intensity'].raw_data.shape == (16 * 16,)
+    assert np.allclose(results['intensity'].raw_data, expected)
 
 
 def test_sum_spectrum_linescan(lt_ctx):
@@ -111,9 +113,8 @@ def test_sum_spectrum_linescan(lt_ctx):
     data = _mk_random(size=(16 * 16, 16 * 16), dtype='<u2')
     dataset = MemoryDataSet(
         data=data,
-        effective_shape=(16 * 16, 16 * 16),
         tileshape=(2, 16 * 16),
-        partition_shape=(8, 16 * 16),
+        num_partitions=32,
         sig_dims=1,
     )
 
@@ -124,27 +125,25 @@ def test_sum_spectrum_linescan(lt_ctx):
 
     results = lt_ctx.run(analysis)
 
-    assert results.intensity.raw_data.shape == (16 * 16,)
-    assert np.allclose(results.intensity.raw_data, expected)
+    assert results['intensity'].raw_data.shape == (16 * 16,)
+    assert np.allclose(results['intensity'].raw_data, expected)
 
 
 def test_sum_hyperspectral(lt_ctx):
-    # flat navigation dimension to simulate "image stack"-like file formats:
-    data = _mk_random(size=(16 * 16, 16, 16, 16), dtype='<u2')
+    data = _mk_random(size=(16, 16, 16, 16, 16), dtype='<u2')
     dataset = MemoryDataSet(
         data=data,
-        effective_shape=(16, 16, 16, 16, 16),
         tileshape=(1, 16, 16, 16),
-        partition_shape=(8, 16, 16, 16),
+        num_partitions=32,
         sig_dims=3,
     )
 
-    expected = data.sum(axis=(0,))
+    expected = data.sum(axis=(0, 1))
     analysis = lt_ctx.create_sum_analysis(dataset=dataset)
     results = lt_ctx.run(analysis)
 
-    assert results.intensity.raw_data.shape == (16, 16, 16)
-    assert np.allclose(results.intensity.raw_data, expected)
+    assert results['intensity'].raw_data.shape == (16, 16, 16)
+    assert np.allclose(results['intensity'].raw_data, expected)
 
 
 def test_sum_complex(lt_ctx, ds_complex):
@@ -152,5 +151,88 @@ def test_sum_complex(lt_ctx, ds_complex):
     analysis = lt_ctx.create_sum_analysis(dataset=ds_complex)
     results = lt_ctx.run(analysis)
 
-    assert results.intensity.raw_data.shape == (16, 16)
-    assert np.allclose(results.intensity_complex.raw_data, expected)
+    assert ds_complex.data.dtype.kind == 'c'
+    assert results['intensity_complex'].raw_data.dtype.kind == 'c'
+
+    assert results['intensity'].raw_data.shape == (16, 16)
+    assert np.allclose(results['intensity_complex'].raw_data, expected)
+
+
+def test_sum_with_roi(lt_ctx):
+    data = _mk_random(size=(16, 16, 16, 16), dtype='<u2')
+    dataset = MemoryDataSet(data=data, tileshape=(2, 16, 16), num_partitions=32)
+
+    roi = {
+        "shape": "disk",
+        "cx": 5,
+        "cy": 6,
+        "r": 7,
+    }
+    analysis = SumAnalysis(dataset=dataset, parameters={
+        "roi": roi,
+    })
+
+    results = lt_ctx.run(analysis)
+
+    mask = masks.circular(roi["cx"], roi["cy"], 16, 16, roi["r"])
+    assert mask.shape == (16, 16)
+    assert mask[0, 0] == 0
+    assert mask[6, 5] == 1
+    assert mask.dtype == np.bool
+
+    # applying the mask flattens the first two dimensions, so we
+    # only sum over axis 0 here:
+    expected = data[mask, ...].sum(axis=(0,))
+
+    assert expected.shape == (16, 16)
+    assert results['intensity'].raw_data.shape == (16, 16)
+
+    # is not equal to results without mask:
+    assert not np.allclose(results['intensity'].raw_data, data.sum(axis=(0, 1)))
+    # ... but rather like `expected`:
+    assert np.allclose(results['intensity'].raw_data, expected)
+
+
+def test_sum_zero_roi(lt_ctx):
+    data = _mk_random(size=(16, 16, 16, 16), dtype='<u2')
+    dataset = MemoryDataSet(data=data, tileshape=(2, 16, 16), num_partitions=32)
+
+    roi = {
+        "shape": "disk",
+        "cx": -1,
+        "cy": -1,
+        "r": 0,
+    }
+    analysis = SumAnalysis(dataset=dataset, parameters={
+        "roi": roi,
+    })
+
+    results = lt_ctx.run(analysis)
+
+    mask = masks.circular(roi["cx"], roi["cy"], 16, 16, roi["r"])
+    assert mask.shape == (16, 16)
+    assert np.count_nonzero(mask) == 0
+    assert mask.dtype == np.bool
+
+    # applying the mask flattens the first two dimensions, so we
+    # only sum over axis 0 here:
+    expected = data[mask, ...].sum(axis=(0,))
+
+    assert expected.shape == (16, 16)
+    assert results['intensity'].raw_data.shape == (16, 16)
+
+    # is not equal to results without mask:
+    assert not np.allclose(results['intensity'].raw_data, data.sum(axis=(0, 1)))
+    # ... but rather like `expected`:
+    assert np.allclose(results['intensity'].raw_data, expected)
+
+
+def test_sum_with_crop_frames(lt_ctx):
+    data = _mk_random(size=(16, 16, 16, 16), dtype="float32")
+    dataset = MemoryDataSet(data=data, tileshape=(7, 8, 8),
+                            num_partitions=2, sig_dims=2, crop_frames=True)
+
+    analysis = lt_ctx.create_sum_analysis(dataset=dataset)
+    res = lt_ctx.run(analysis)
+    print(data.shape, res.intensity.raw_data.shape)
+    assert np.allclose(res.intensity.raw_data, np.sum(data, axis=(0, 1)))

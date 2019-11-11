@@ -1,12 +1,17 @@
+import os
+
 import numpy as np
 import pytest
 
 from libertem.executor.dask import (
     CommonDaskMixin, DaskJobExecutor
 )
+from libertem.common import Shape, Slice
 from libertem.executor.base import AsyncAdapter
-from libertem.job.sum import SumFramesJob
-from utils import MemoryDataSet, _mk_random
+from libertem.job.raw import PickFrameJob
+from libertem.io.dataset.memory import MemoryDataSet
+
+from utils import _mk_random
 
 
 @pytest.fixture
@@ -40,15 +45,46 @@ def test_task_affinity_1():
 @pytest.mark.asyncio
 async def test_run_job(aexecutor):
     data = _mk_random(size=(16, 16, 16, 16), dtype='<u2')
-    dataset = MemoryDataSet(data=data, tileshape=(1, 1, 16, 16), partition_shape=(1, 8, 16, 16))
-    expected = data.sum(axis=(0, 1))
+    dataset = MemoryDataSet(data=data, tileshape=(1, 16, 16), num_partitions=2)
+    expected = data[0, 0]
 
-    job = SumFramesJob(dataset=dataset)
+    slice_ = Slice(origin=(0, 0, 0), shape=Shape((1, 16, 16), sig_dims=2))
+    job = PickFrameJob(dataset=dataset, slice_=slice_)
     out = job.get_result_buffer()
 
-    async for tiles in aexecutor.run_job(job):
+    async for tiles in aexecutor.run_job(job, cancel_id="42"):
         for tile in tiles:
             tile.reduce_into_result(out)
 
-    assert out.shape == (16, 16)
+    assert out.shape == (1, 16, 16)
     assert np.allclose(out, expected)
+
+
+@pytest.mark.skipif(os.name == 'nt',
+                    reason="doesnt run on windows")
+@pytest.mark.asyncio
+async def test_fd_limit(aexecutor):
+    import resource
+    import psutil
+    # set soft limit, throws errors but allows to raise it
+    # again afterwards:
+    proc = psutil.Process()
+    oldlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (proc.num_fds() + 24, oldlimit[1]))
+
+    print("fds", proc.num_fds())
+
+    try:
+        data = _mk_random(size=(1, 16, 16), dtype='<u2')
+        dataset = MemoryDataSet(data=data, tileshape=(1, 16, 16), num_partitions=1)
+
+        slice_ = Slice(origin=(0, 0, 0), shape=Shape((1, 16, 16), sig_dims=2))
+        job = PickFrameJob(dataset=dataset, slice_=slice_)
+
+        for i in range(32):
+            print(i)
+            print(proc.num_fds())
+            async for tiles in aexecutor.run_job(job, cancel_id="42"):
+                pass
+    finally:
+        resource.setrlimit(resource.RLIMIT_NOFILE, oldlimit)

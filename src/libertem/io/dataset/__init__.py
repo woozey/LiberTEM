@@ -11,6 +11,8 @@ filetypes = {
     "k2is": "libertem.io.dataset.k2is.K2ISDataSet",
     "ser": "libertem.io.dataset.ser.SERDataSet",
     "frms6": "libertem.io.dataset.frms6.FRMS6DataSet",
+    "empad": "libertem.io.dataset.empad.EMPADDataSet",
+    "memory": "libertem.io.dataset.memory.MemoryDataSet",
 }
 
 
@@ -20,20 +22,32 @@ def load(filetype, *args, **kwargs):
 
     Parameters
     ----------
-    filetype : str
+    filetype : str or DataSet type
         see libertem.io.dataset.filetypes for supported types, example: 'hdf5'
 
     additional parameters are passed to the concrete DataSet implementation
     """
-    cls = _get_dataset_cls(filetype)
+    cls = get_dataset_cls(filetype)
     return cls(*args, **kwargs)
 
 
-def _get_dataset_cls(filetype):
+def register_dataset_cls(filetype, cls):
+    filetypes[filetype] = cls
+
+
+def unregister_dataset_cls(filetype):
+    del filetypes[filetype]
+
+
+def get_dataset_cls(filetype):
+    if not isinstance(filetype, str):
+        return filetype
     try:
         ft = filetypes[filetype.lower()]
     except KeyError:
         raise DataSetException("unknown filetype: %s" % filetype)
+    if not isinstance(ft, str):
+        return ft
     parts = ft.split(".")
     module = ".".join(parts[:-1])
     cls = parts[-1]
@@ -48,7 +62,7 @@ def _get_dataset_cls(filetype):
 def detect(path):
     for filetype in filetypes.keys():
         try:
-            cls = _get_dataset_cls(filetype)
+            cls = get_dataset_cls(filetype)
             maybe_params = cls.detect_params(path)
         except (NotImplementedError, DataSetException):
             continue

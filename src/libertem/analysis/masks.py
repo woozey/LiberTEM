@@ -1,4 +1,3 @@
-import numpy as np
 from libertem.viz import visualize_simple
 from .base import BaseAnalysis, AnalysisResultSet, AnalysisResult
 from libertem.job.masks import ApplyMasksJob
@@ -11,34 +10,40 @@ class BaseMasksAnalysis(BaseAnalysis):
     Overwrite  ``get_use_sparse`` to return True to calculate with sparse mask matrices.
     """
 
-    @property
-    def dtype(self):
-        if np.dtype(self.dataset.dtype).kind in ('f', 'c'):
-            return self.dataset.dtype
-        return np.dtype("float32")
-
     def get_job(self):
         mask_factories = self.get_mask_factories()
         use_sparse = self.get_use_sparse()
+        mask_count = self.get_preset_mask_count()
+        mask_dtype = self.get_preset_mask_dtype()
+        dtype = self.get_preset_dtype()
         job = ApplyMasksJob(
             dataset=self.dataset,
             mask_factories=mask_factories,
-            use_sparse=use_sparse)
+            use_sparse=use_sparse,
+            mask_count=mask_count,
+            mask_dtype=mask_dtype,
+            dtype=dtype)
         return job
 
     def get_mask_factories(self):
         raise NotImplementedError()
 
     def get_use_sparse(self):
-        return False
+        return self.parameters.get('use_sparse', None)
+
+    def get_preset_mask_count(self):
+        return self.parameters.get('mask_count', None)
+
+    def get_preset_mask_dtype(self):
+        return self.parameters.get('mask_dtype', None)
+
+    def get_preset_dtype(self):
+        return self.parameters.get('dtype', None)
 
 
 class MasksAnalysis(BaseMasksAnalysis):
     def get_mask_factories(self):
         return self.parameters['factories']
-
-    def get_use_sparse(self):
-        return self.parameters['use_sparse']
 
     def get_results(self, job_results):
         shape = tuple(self.dataset.shape.nav)
@@ -47,7 +52,7 @@ class MasksAnalysis(BaseMasksAnalysis):
             for idx, job_result in enumerate(job_results):
                 results.extend(
                     self.get_complex_results(
-                        job_result,
+                        job_result.reshape(shape),
                         key_prefix="mask_%d" % idx,
                         title="mask %d" % idx,
                         desc="integrated intensity for mask %d" % idx,

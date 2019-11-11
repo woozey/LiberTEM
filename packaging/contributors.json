@@ -36,6 +36,18 @@
         "contribution": "Discussions, funding applications"
     },
     {
+        "displayname": "Matus Krajnak",
+        "authorname": "Krajnak, Matus",
+        "affiliation": "Quantum Detectors",
+        "contribution": "Bug report and fix regarding MIB format"
+    },
+    {
+        "displayname": "Phillip Crout",
+        "authorname": "Crout, Phillip",
+        "affiliation": "pyXem",
+        "contribution": "Discussions, work towards mutual compatibility."
+    },
+    {
         "displayname": "Peter Ercius",
         "authorname": "Ercius, Peter",
         "affiliation": "Berkeley Lab",
@@ -60,6 +72,12 @@
         "contribution": "Discussions, supporting deployment on Australian eResearch infrastructure"
     },
     {
+        "displayname": "Giulio Guzzinati",
+        "authorname": "Guzzinati, Giulio ",
+        "affiliation": "U Antwerp",
+        "contribution": "Discussions and publication https://arxiv.org/abs/1902.06979 leading to the affine transformation strain map"
+    },
+    {
         "displayname": "Chris Hines",
         "authorname": "Hines, Chris",
         "affiliation": "Monash",
@@ -82,6 +100,12 @@
         "authorname": "Jemian, Pete",
         "affiliation": "NeXus project",
         "contribution": "Discussions and support regarding NeXus file format"
+    },
+    {
+        "displayname": "Duncan N. Johnstone",
+        "authorname": "Johnstone, Duncan N.",
+        "affiliation": "pyXem",
+        "contribution": "Discussions, work towards mutual compatibility."
     },
     {
         "displayname": "Christoph Koch",
@@ -112,6 +136,12 @@
         "authorname": "MacLaren, Ian",
         "affiliation": "U Glasgow",
         "contribution": "Sample data for peak selector example, discussions, advisory"
+    },
+    {
+        "displayname": "Christoph Mahr",
+        "authorname": "Mahr, Christoph",
+        "affiliation": "U Bremen",
+        "contribution": "Discussions leading to the full frame refinement code"
     },
     {
         "displayname": "Shane McCartan",
@@ -240,6 +270,12 @@
         "contribution": "Discussions"
     },
     {
+        "displayname": "Benjamin Watts",
+        "authorname": "Watts, Benjamin",
+        "affiliation": "PSI",
+        "contribution": "Help and sample files towards a NeXus Application Definition for pixelated STEM."
+    },
+    {
         "displayname": "Roger Wepf",
         "authorname": "Wepf, Roger",
         "affiliation": "U Queensland",
@@ -271,7 +307,7 @@
     },
     {
         "displayname": "@theassassin",
-        "github": "@theassassin",
+        "github": "theassassin",
         "authorname": "@theassassin",
         "contribution": "Help with setting up AppImage building and Continuous Integration"
     }

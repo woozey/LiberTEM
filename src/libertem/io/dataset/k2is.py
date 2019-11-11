@@ -12,7 +12,9 @@ import numpy as np
 import numba
 from ncempy.io import dm
 
+from libertem.common.buffers import zeros_aligned
 from libertem.common import Slice, Shape
+from libertem.web.messages import MessageConverter
 from .base import DataSet, Partition, DataTile, DataSetException, DataSetMeta
 
 log = logging.getLogger(__name__)
@@ -28,6 +30,27 @@ NUM_SECTORS = 8
 SECTOR_SIZE = (2 * 930, 256)
 
 SHUTTER_ACTIVE_MASK = 0x1
+
+
+class K2ISDatasetParams(MessageConverter):
+    SCHEMA = {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "$id": "http://libertem.org/K2ISDatasetParams.schema.json",
+      "title": "K2ISDatasetParams",
+      "type": "object",
+      "properties": {
+          "type": {"const": "K2IS"},
+          "path": {"type": "string"},
+      },
+      "required": ["type", "path"]
+    }
+
+    def convert_to_python(self, raw_data):
+        data = {
+            k: raw_data[k]
+            for k in ["path"]
+        }
+        return data
 
 
 @numba.njit
@@ -193,13 +216,15 @@ class Sector:
             offset += BLOCK_SIZE
 
     def read_full_frame(self, frame, buf, dtype="float32", crop_to=None):
+        # TODO: mmapping the whole file may confuse dask.distributed,
+        # if the file is large in compraison to RAM.
         raw_data = mmap.mmap(
             fileno=self.f.fileno(),
             length=0,   # whole file
             access=mmap.ACCESS_READ,
         )
         # FIXME: can we somehow get rid of this buffer?
-        block_buf = np.zeros(BLOCK_SHAPE, dtype=dtype).reshape((-1,))
+        block_buf = zeros_aligned(BLOCK_SHAPE, dtype=dtype).reshape((-1,))
         for blockidx in range(BLOCKS_PER_SECTOR_PER_FRAME):
             offset = (
                 self.first_block_offset
@@ -238,7 +263,7 @@ class Sector:
             access=mmap.ACCESS_READ,
         )
 
-        tile_buf_full = np.zeros(tileshape, dtype=dtype)
+        tile_buf_full = zeros_aligned(tileshape, dtype=dtype)
         assert DATA_SIZE % 3 == 0
         log.debug("starting read_stacked with start_at_frame=%d, num_frames=%d, stackheight=%d",
                   start_at_frame, num_frames, stackheight)
@@ -251,7 +276,7 @@ class Sector:
                 current_tileshape = (
                     current_stackheight,
                 ) + BLOCK_SHAPE
-                tile_buf = np.zeros(current_tileshape, dtype=dtype)
+                tile_buf = zeros_aligned(current_tileshape, dtype=dtype)
             else:
                 current_stackheight = stackheight
                 current_tileshape = tileshape
@@ -407,7 +432,7 @@ class DataBlock:
     def pixel_data(self):
         if not self.is_valid:
             raise ValueError("invalid block: %r" % self)
-        arr = np.zeros((930 * 16), dtype="uint16")
+        arr = zeros_aligned((930 * 16), dtype="uint16")
         self.readinto(arr)
         return arr.reshape(930, 16)
 
@@ -431,7 +456,16 @@ class DataBlock:
 
 
 class K2ISDataSet(DataSet):
+    """
+    Read raw K2IS data sets. They consist of 8 .bin files and one .gtg file.
+
+    Parameters
+    ----------
+    path: str
+        Path to one of the files of the data set (either one of the .bin files or the .gtg file)
+    """
     def __init__(self, path):
+        super().__init__()
         self._path = path
         self._start_offsets = None
         # NOTE: the sync flag appears to be set one frame too late, so
@@ -445,13 +479,11 @@ class K2ISDataSet(DataSet):
         self._files = self._get_files()
         self._fileset = self._get_fileset()
         self._scan_size = self._get_scansize()
-        ss = self._scan_size
         self._meta = DataSetMeta(
             shape=Shape(self._scan_size + (SECTOR_SIZE[0], NUM_SECTORS * SECTOR_SIZE[1]),
                      sig_dims=2),
-            raw_shape=Shape((ss[0] * ss[1], SECTOR_SIZE[0], NUM_SECTORS * SECTOR_SIZE[1]),
-                            sig_dims=2),
-            dtype=self.dtype,
+            raw_dtype=np.dtype("uint16"),
+            iocaps={"FULL_FRAMES", "SUBFRAME_TILES"},
         )
         return self
 
@@ -470,15 +502,15 @@ class K2ISDataSet(DataSet):
 
     @property
     def dtype(self):
-        return np.dtype("uint16")
+        return self._meta.raw_dtype
 
     @property
     def shape(self):
         return self._meta.shape
 
-    @property
-    def raw_shape(self):
-        return self._meta.raw_shape
+    @classmethod
+    def get_msg_converter(cls):
+        return K2ISDatasetParams
 
     @classmethod
     def detect_params(cls, path):
@@ -570,7 +602,7 @@ class K2ISDataSet(DataSet):
         size = sum(sector.filesize
                    for sector in self._fileset.sectors)
         # let's try to aim for 512MB per partition
-        res = max(1, size // (512*1024*1024))
+        res = max(self._cores, size // (512*1024*1024))
         return res
 
     def get_partitions(self):
@@ -612,22 +644,63 @@ class K2ISPartition(Partition):
         self._num_frames = num_frames
         super().__init__(*args, **kwargs)
 
-    def get_tiles(self, crop_to=None, full_frames=False):
+    def get_tiles(self, crop_to=None, full_frames=False, mmap=False, dest_dtype="float32",
+                  roi=None, target_size=None):
+        if roi is not None:
+            # FIXME: implement roi for _read_stacked; forcing full_frames=True is suboptimal
+            # for performance reasons.
+            full_frames = True
         if full_frames:
-            yield from self._read_full_frames(crop_to=crop_to)
+            yield from self._read_full_frames(crop_to=crop_to, dest_dtype=dest_dtype, roi=roi)
         else:
-            yield from self._read_stacked(crop_to=crop_to)
+            yield from self._read_stacked(crop_to=crop_to, dtype=dest_dtype, roi=roi)
 
-    def _read_full_frames(self, crop_to=None):
+    def get_macrotile(self, mmap=False, dest_dtype="float32", roi=None):
+        '''
+        Return a single tile for the entire partition.
+
+        This is useful to support process_partiton() in UDFs and to construct dask arrays
+        from datasets.
+        '''
+        num_frames = self._num_frames
+        if roi is not None:
+            start_frame = self._start_frame
+            roi = roi.reshape((-1,))
+            num_frames = np.count_nonzero(roi[start_frame:start_frame+num_frames])
+        buf = zeros_aligned((num_frames, 1860, 2048), dtype=dest_dtype)
+        for index, t in enumerate(self._read_full_frames(dest_dtype=dest_dtype, roi=roi)):
+            buf[index] = t.data
+
+        tile_slice = Slice(
+            origin=(self._start_frame, 0, 0),
+            shape=Shape(buf.shape, sig_dims=2),
+        )
+
+        return DataTile(
+            data=buf,
+            tile_slice=tile_slice
+        )
+
+    def _read_full_frames(self, crop_to=None, dest_dtype="float32", roi=None):
         with contextlib.ExitStack() as stack:
-            frame_buf = np.zeros((1, 1860, 2048), dtype="float32")
+            frame_buf = zeros_aligned((1, 1860, 2048), dtype=dest_dtype)
             open_sectors = [
                 stack.enter_context(sector)
                 for sector in self._sectors
             ]
+            frame_offset = 0
+            if roi is not None:
+                roi = roi.reshape((-1,))
+                frame_offset = np.count_nonzero(roi[:self._start_frame])
+            frames_read = 0
             for frame in range(self._start_frame, self._start_frame + self._num_frames):
+                if roi is not None and not roi[frame]:
+                    continue
+                origin = frame
+                if roi is not None:
+                    origin = frame_offset + frames_read
                 tile_slice = Slice(
-                    origin=(frame, 0, 0),
+                    origin=(origin, 0, 0),
                     shape=Shape(frame_buf.shape, sig_dims=2),
                 )
                 if crop_to is not None:
@@ -643,14 +716,16 @@ class K2ISPartition(Partition):
                     data=frame_buf,
                     tile_slice=tile_slice
                 )
+                frames_read += 1
 
-    def _read_stacked(self, crop_to=None):
+    def _read_stacked(self, crop_to=None, dtype="float32", roi=None):
         for sector in self._sectors:
             with sector as s:
                 yield from s.read_stacked(
                     start_at_frame=self._start_frame,
                     num_frames=self._num_frames,
                     crop_to=crop_to,
+                    dtype=dtype,
                 )
 
     def __repr__(self):

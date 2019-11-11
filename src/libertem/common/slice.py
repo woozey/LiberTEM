@@ -107,7 +107,7 @@ class Slice(object):
     def get(self, arr=None, sig_only=False, nav_only=False):
         """
         Get a standard python tuple-of-slice-object which can be used
-        to slice any compatible ndarray
+        to slice any compatible numpy.ndarray
 
         Parameters
         ----------
@@ -157,7 +157,13 @@ class Slice(object):
                 for (o, s) in zip(self.origin, self.shape)
             ])
         if arr is not None:
-            return arr[slice_]
+            if sig_only:
+                # Skip the supposed nav dimensions of the data
+                return arr[(Ellipsis, ) + slice_]
+            else:
+                # for nav_only, we return the full remaining dimensions anyway
+                # if arr has more dimensions than the slice
+                return arr[slice_]
         else:
             return slice_
 
@@ -223,6 +229,68 @@ class Slice(object):
             ]), new_shape=Shape(tuple(shape), sig_dims=self.shape.sig.dims))
 
             for indexes in np.ndindex(ni)
+        )
+
+    def flatten_nav(self, containing_shape):
+        sig_dims = self.shape.sig.dims
+        nav_dims = self.shape.dims - sig_dims
+        containing_shape = tuple(containing_shape)[:nav_dims]
+        origin = self.origin[:nav_dims]
+
+        # validation for the nav_shape:
+        # what are the preconditions that allow flattening?
+        #
+        # - nav part of the shape: must be in the form of:
+        #
+        #   (1,  1,  ...,  N, M, M, ...)
+        #
+        #   where N<=M and M is the corresponding part of
+        #   the shape of the dataset.
+        #
+        # - the origin must match the shape in the following way:
+        #
+        #   (o1, o2, ..., oi, 0, 0, ...)
+        #
+        #   where all oj are arbitraty (but in bounds)
+        #
+        state = 0
+        for cs, s, o in zip(containing_shape, self.shape.nav, origin):
+            if state == 0:
+                if s != 1:
+                    state = 1
+                    assert s <= cs, "invalid nav_shape #1"
+            elif state == 1:
+                assert s == cs, "invalid nav_shape #2"
+                assert o == 0, "invalid origin"
+
+        nav_origin = np.ravel_multi_index(
+            origin,
+            containing_shape
+        )
+        nav_shape = np.product(tuple(self.shape.nav))
+        return Slice(
+            origin=(nav_origin,) + self.origin[nav_dims:],
+            shape=Shape((nav_shape,) + tuple(self.shape.sig), sig_dims=sig_dims)
+        )
+
+    def adjust_for_roi(self, roi):
+        """
+        Make a new slice that has origin and shape modified according to `roi`.
+        """
+        if roi is None:
+            return self
+        assert self.shape.nav.dims == 1
+        s_o = self.origin[0]
+        s_s = self.shape[0]
+        # We need to find how many 1s there are for all previous partitions, to know
+        # the origin; then we count how many 1s there are in our partition
+        # to find our shape.
+        origin = np.count_nonzero(roi[:s_o])
+        shape = np.count_nonzero(roi[s_o:s_o + s_s])
+        sig_dims = self.shape.sig.dims
+        return Slice(
+            origin=(origin,) + self.origin[-sig_dims:],
+            shape=Shape((shape,) + tuple(self.shape.sig), sig_dims=sig_dims),
         )
 
     def __getstate__(self):

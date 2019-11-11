@@ -1,4 +1,4 @@
-**@theassassin**
+**@theassassin** `GitHub <https://github.com/theassassin>`__
     Help with setting up AppImage building and Continuous Integration
 
 **Juri Barthel (FZ Jülich)**
@@ -16,6 +16,9 @@
 **Robert Bücker (MPSD)**
     Discussions, sample files
 
+**Phillip Crout (pyXem)**
+    Discussions, work towards mutual compatibility.
+
 **Peter Ercius (Berkeley Lab)**
     Re-licensing `ncempy <https://github.com/ercius/openNCEM/>`_ under MIT license to allow using it in the IO part of LiberTEM, enabling full K2IS raw file and SER support.
 
@@ -27,6 +30,9 @@
 
 **Wojtek James Goscinski (Monash)**
     Discussions, supporting deployment on Australian eResearch infrastructure
+
+**Giulio Guzzinati (U Antwerp)**
+    Discussions and publication https://arxiv.org/abs/1902.06979 leading to the affine transformation strain map
 
 **Chris Hines (Monash)**
     Discussions, supporting deployment on Australian eResearch infrastructure
@@ -40,8 +46,14 @@
 **Pete Jemian (NeXus project)**
     Discussions and support regarding NeXus file format
 
+**Duncan N. Johnstone (pyXem)**
+    Discussions, work towards mutual compatibility.
+
 **Christoph Koch (HU Berlin)**
     Discussions
+
+**Matus Krajnak (Quantum Detectors)**
+    Bug report and fix regarding MIB format
 
 **Alexander Krings (FZ Jülich)**
     Discussions, requirements description
@@ -54,6 +66,9 @@
 
 **Ian MacLaren (U Glasgow)**
     Sample data for peak selector example, discussions, advisory
+
+**Christoph Mahr (U Bremen)**
+    Discussions leading to the full frame refinement code
 
 **Shane McCartan (U Glasgow)**
     Sample data for peak selector example
@@ -117,6 +132,9 @@
 
 **Paul Voyles (U Wisconsin)**
     Discussions
+
+**Benjamin Watts (PSI)**
+    Help and sample files towards a NeXus Application Definition for pixelated STEM.
 
 **Roger Wepf (U Queensland)**
     Discussions, supporting deployment on Australian eResearch infrastructure

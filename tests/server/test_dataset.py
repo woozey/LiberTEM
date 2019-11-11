@@ -12,11 +12,11 @@ def _get_raw_params(path):
     return {
         "dataset": {
             "params": {
-                "type": "raw",
+                "type": "RAW",
                 "path": path,
                 "dtype": "float32",
-                "detector_size_raw": [128, 128],
-                "crop_detector_to": [128, 128],
+                "detector_size": [128, 128],
+                "enable_direct": False,
                 "tileshape": [1, 1, 128, 128],
                 "scan_size": [16, 16]
             }
@@ -154,13 +154,13 @@ async def test_initial_state_after_reconnect(default_raw, base_url, http_client,
         assert len(initial_msg["datasets"]) == 1
         assert initial_msg["datasets"][0]["id"] == uuid
         assert initial_msg["datasets"][0]["params"] == {
-            'crop_detector_to': [128, 128],
-            'detector_size_raw': [128, 128],
+            'detector_size': [128, 128],
+            "enable_direct": False,
             'dtype': 'float32',
             'path': raw_path,
             'scan_size': [16, 16],
             'shape': [16, 16, 128, 128],
             'tileshape': [1, 1, 128, 128],
-            'type': 'raw'
+            'type': 'RAW'
         }
         assert len(initial_msg["datasets"][0]["diagnostics"]) == 2

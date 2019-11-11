@@ -38,6 +38,9 @@ jobs:
       python: 3.7
       dist: xenial
       sudo: true
+      install:
+        - pip install tox
+        - sudo apt-get install -y pandoc
     - stage: test
       language: node_js
       node_js:
@@ -53,17 +56,21 @@ jobs:
       python: 3.7
       dist: xenial
       sudo: true
+      install:
+        - pip install tox
+        - sudo apt-get install -y pandoc
 
     - stage: packaging
       sudo: require
-      dist: trusty
+      python: 3.7
+      dist: xenial
+      install:
+        - pip install click pygithub requests twine html5lib docutils bibtexparser
       script:
-        - bash -ex packaging/appimage/make_app_image.sh
-        - ls -lh
-      after_success:
-        - test $TRAVIS_BRANCH = "master" && test $TRAVIS_PULL_REQUEST = "false" && wget -c https://github.com/probonopd/uploadtool/raw/master/upload.sh && bash -c "chmod +x upload.sh && ./upload.sh LiberTEM*.AppImage* dist/*"
+        - python scripts/release upload --pypi-test-user=libertem_bot --pypi-user=libertem_bot --no-dry-run
 
 branches:
   except:
     - # Do not build tags that we create when we upload to GitHub Releases
     - /^(?i:continuous)/
+    - /^v[0-9]+\.[0-9]+\.[0-9]+/

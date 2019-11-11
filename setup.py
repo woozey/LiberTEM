@@ -89,6 +89,10 @@ def read(*parts):
     return codecs.open(os.path.join(here, *parts), 'r').read()
 
 
+def remove_rst_roles(txt):
+    return re.sub(':(cite|doc):`[^`]+` ?', '', txt)
+
+
 def get_git_rev():
     # NOTE: this is a copy from src/libertem/versioning.py
     # this is because it is not guaranteed that we can import our own packages
@@ -132,6 +136,7 @@ setup(
     install_requires=[
         "numpy",
         "scipy",
+        "sparse",
         "distributed>=1.23.3",
         "click",
         "tornado>=5",
@@ -139,16 +144,23 @@ setup(
         "pillow",
         "h5py",
         "psutil",
-        "numba",
+        # Pinned due to https://github.com/pydata/sparse/issues/257
+        # Ensure compatibility with numpy 1.17
+        "numba>=0.45.1",
         "ncempy>=1.4",
         'pypiwin32;platform_system=="Windows"',
         # FIXME pull request #259
         # https://github.com/LiberTEM/LiberTEM/pull/259#discussion_r251877431
         'scikit-image',
+        'cloudpickle',
+        'jsonschema',
+        'scikit-learn'
     ],
     extras_require={
-        'hdfs': 'hfds3',
+        'hdfs': 'hdfs3',
         'torch': 'torch',
+        'hdbscan': 'hdbscan',
+        'pyfftw': 'pyfftw',
     },
     package_dir={"": "src"},
     packages=[
@@ -175,13 +187,13 @@ setup(
     },
     keywords="electron microscopy",
     description="Open pixelated STEM framework",
-    long_description=read("README.rst"),
+    long_description=remove_rst_roles(read("README.rst")),
     long_description_content_type="text/x-rst",
     url="https://libertem.github.io/LiberTEM/",
     author_email="libertem-dev@googlegroups.com",
     author="the LiberTEM team",
     classifiers=[
-        'Development Status :: 3 - Alpha',
+        'Development Status :: 4 - Beta',
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',

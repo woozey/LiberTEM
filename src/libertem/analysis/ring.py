@@ -1,3 +1,5 @@
+import numpy as np
+
 from libertem import masks
 from libertem.viz import visualize_simple
 from .base import AnalysisResult, AnalysisResultSet
@@ -11,7 +13,7 @@ class RingMaskAnalysis(BaseMasksAnalysis):
         if data.dtype.kind == 'c':
             return AnalysisResultSet(
                 self.get_complex_results(
-                    data,
+                    data.reshape(shape),
                     key_prefix='intensity',
                     title='intensity',
                     desc="intensity of the integration over the selected ring",
@@ -19,7 +21,7 @@ class RingMaskAnalysis(BaseMasksAnalysis):
             )
         return AnalysisResultSet([
             AnalysisResult(
-                raw_data=data,
+                raw_data=data.reshape(shape),
                 visualized=visualize_simple(data),
                 key="intensity",
                 title="intensity",
@@ -54,10 +56,14 @@ class RingMaskAnalysis(BaseMasksAnalysis):
         cy = parameters.get('cy', detector_y / 2)
         ro = parameters.get('ro', min(detector_y, detector_x) / 2)
         ri = parameters.get('ri', ro * 0.8)
+        use_sparse = parameters.get('use_sparse', False)
 
         return {
             'cx': cx,
             'cy': cy,
             'ri': ri,
             'ro': ro,
+            'use_sparse': use_sparse,
+            'mask_count': 1,
+            'mask_dtype': np.float32,
         }

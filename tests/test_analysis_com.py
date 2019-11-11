@@ -2,7 +2,9 @@ import pytest
 import numpy as np
 from scipy.ndimage import measurements
 from libertem import masks
-from utils import MemoryDataSet, _mk_random
+from libertem.io.dataset.memory import MemoryDataSet
+
+from utils import _mk_random
 
 
 @pytest.fixture
@@ -11,8 +13,9 @@ def ds_w_zero_frame():
     data[0, 0] = np.zeros((16, 16))
     dataset = MemoryDataSet(
         data=data.astype("<u2"),
-        tileshape=(1, 1, 16, 16),
-        partition_shape=(8, 16, 16, 16)
+        tileshape=(1, 16, 16),
+        num_partitions=2,
+        sig_dims=2,
     )
     return dataset
 
@@ -22,8 +25,8 @@ def ds_random():
     data = _mk_random(size=(16, 16, 16, 16))
     dataset = MemoryDataSet(
         data=data.astype("<u2"),
-        tileshape=(1, 1, 16, 16),
-        partition_shape=(16, 16, 16, 16)
+        tileshape=(1, 16, 16),
+        num_partitions=2,
     )
     return dataset
 
@@ -89,7 +92,7 @@ def test_com_fails_with_non_4d_data_1(lt_ctx):
     dataset = MemoryDataSet(
         data=data.astype("<u2"),
         tileshape=(1, 16, 16),
-        partition_shape=(8, 16, 16)
+        num_partitions=32,
     )
     with pytest.raises(Exception):
         lt_ctx.create_com_analysis(
@@ -101,8 +104,8 @@ def test_com_fails_with_non_4d_data_2(lt_ctx):
     data = _mk_random(size=(16, 16, 16 * 16))
     dataset = MemoryDataSet(
         data=data.astype("<u2"),
-        tileshape=(1, 16, 16),
-        partition_shape=(16, 16, 16),
+        tileshape=(1, 16 * 16),
+        num_partitions=16,
         sig_dims=1,
     )
     with pytest.raises(Exception):
@@ -115,8 +118,8 @@ def test_com_complex_numbers(lt_ctx):
     data = _mk_random(size=(16, 16, 16, 16), dtype="complex64")
     ds_complex = MemoryDataSet(
         data=data,
-        tileshape=(1, 1, 16, 16),
-        partition_shape=(16, 16, 16, 16)
+        tileshape=(1, 16, 16),
+        num_partitions=2,
     )
     analysis = lt_ctx.create_com_analysis(dataset=ds_complex, cx=0, cy=0, mask_radius=None)
     results = lt_ctx.run(analysis)
@@ -151,8 +154,8 @@ def test_com_complex_numbers_handcrafted_1(lt_ctx):
     ])
     ds_complex = MemoryDataSet(
         data=data,
-        tileshape=(1, 1, 4, 4),
-        partition_shape=(1, 1, 4, 4)
+        tileshape=(1, 4, 4),
+        num_partitions=9,
     )
     analysis = lt_ctx.create_com_analysis(dataset=ds_complex, cx=0, cy=0, mask_radius=None)
     results = lt_ctx.run(analysis)
@@ -174,8 +177,8 @@ def test_com_complex_numbers_handcrafted_2(lt_ctx):
     ])
     ds_complex = MemoryDataSet(
         data=data,
-        tileshape=(1, 1, 4, 4),
-        partition_shape=(1, 1, 4, 4)
+        tileshape=(1, 4, 4),
+        num_partitions=9,
     )
     analysis = lt_ctx.create_com_analysis(dataset=ds_complex, cx=0, cy=0, mask_radius=None)
     results = lt_ctx.run(analysis)
@@ -197,8 +200,8 @@ def test_com_complex_numbers_handcrafted_3(lt_ctx):
     ], dtype="complex64").reshape((4, 4))
     ds_complex = MemoryDataSet(
         data=data,
-        tileshape=(1, 1, 4, 4),
-        partition_shape=(1, 1, 4, 4)
+        tileshape=(1, 4, 4),
+        num_partitions=9,
     )
     analysis = lt_ctx.create_com_analysis(dataset=ds_complex, cx=0, cy=0, mask_radius=None)
     results = lt_ctx.run(analysis)
@@ -216,8 +219,8 @@ def test_com_default_params(lt_ctx):
     data = _mk_random(size=(16, 16, 16, 16))
     dataset = MemoryDataSet(
         data=data.astype("<u2"),
-        tileshape=(1, 1, 16, 16),
-        partition_shape=(1, 16, 16, 16),
+        tileshape=(1, 16, 16),
+        num_partitions=16,
         sig_dims=2,
     )
     analysis = lt_ctx.create_com_analysis(

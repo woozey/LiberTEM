@@ -21,14 +21,22 @@ Documentation
 
    install
    usage
+   concepts
+   api
+   formats
+   udf
+   applications
    architecture
+   performance
    contributing
-   acknowledgments
-   citing
    debugging
+   reference/index
+   changelog
+   tips
    why_python
-   reference
    gsoc
+   citing
+   acknowledgments
 
 Indices and tables
 ------------------
@@ -36,3 +44,8 @@ Indices and tables
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
+
+Citations
+---------
+
+.. bibliography:: references-libertem.bib
